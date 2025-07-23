@@ -56,57 +56,46 @@ function initiateLessonSession() {
   const presentation = SlidesApp.getActivePresentation();
   const presentationTitle = presentation.getName();
   const presentationId = presentation.getId();
-
   const file = DriveApp.getFileById(presentationId);
   const pdfBlob = file.getAs('application/pdf').setName(presentationTitle + '.pdf');
 
+  // ✅ Extract speaker notes from each slide
+  const notesArray = presentation.getSlides().map(slide => {
+    const speakerNotesShape = slide.getNotesPage().getSpeakerNotesShape();
+    if (!speakerNotesShape) return "";
+    return speakerNotesShape.getText().asString().trim();
+  });
+
   const formData = {
     file: pdfBlob,
-    presentationId: presentationId,
-    title: presentationTitle
+    presentationId,
+    title: presentationTitle,
+    notes: JSON.stringify(notesArray), // 👈 Send notes as string
   };
 
   const options = {
     method: 'post',
     payload: formData,
-    muteHttpExceptions: true
-    // Removed ngrok header since you're using localtunnel
+    muteHttpExceptions: true,
   };
 
   try {
-    console.log("Sending request to:", BACKEND_URL);
     const response = UrlFetchApp.fetch(BACKEND_URL, options);
     const responseCode = response.getResponseCode();
     const responseBody = response.getContentText();
 
-    console.log("Response code:", responseCode);
-    console.log("Response body:", responseBody);
-
     if (responseCode === 201) {
       const jsonResponse = JSON.parse(responseBody);
       if (jsonResponse.success && jsonResponse.sessionCode) {
-        const teacherUrl = TEACHER_VIEW_BASE_URL + jsonResponse.sessionCode;
-        console.log("Returning teacher view URL:", teacherUrl);
-        return teacherUrl;
+        return TEACHER_VIEW_BASE_URL + jsonResponse.sessionCode;
       } else {
-        throw new Error("Backend response format error: " + responseBody);
+        throw new Error("Unexpected response: " + responseBody);
       }
     } else {
-      let errorMessage = `Backend error (Code: ${responseCode}).`;
-      try {
-        const errorJson = JSON.parse(responseBody);
-        if (errorJson.message) {
-          errorMessage += ` Server message: ${errorJson.message}`;
-        } else {
-          errorMessage += ` Response: ${responseBody}`;
-        }
-      } catch (e) {
-        errorMessage += ` Raw Response: ${responseBody}`;
-      }
-      throw new Error(errorMessage);
+      throw new Error(`Backend error (${responseCode}): ${responseBody}`);
     }
   } catch (err) {
-    console.error("Error in initiateLessonSession:", err);
+    console.error("initiateLessonSession error:", err);
     throw new Error("Failed to start lesson session. " + err.message);
   }
 }
